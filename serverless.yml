@@ -1,0 +1,60 @@
+app: sls-sample-app
+service: ${self:provider.stackName}
+org: michaelluzhang
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  stackName: sls-${self:provider.stage}-${self:custom.lambdaName}
+  deploymentBucket: 
+    name: sls-${self:provider.stage}-s3BucketName
+  stage: ${opt:env, 'dev'}
+  region: us-east-1
+
+  # VPC and Gateway settings are in serverless.<env>.yml
+  vpc: ${file(./slsenv/serverless.${self:provider.stage}.yml):vpc}
+  apiGateway: ${file(./slsenv/serverless.${self:provider.stage}.yml):apiGateway}
+
+functions:
+  my-lambda-name:
+    handler: handler.sampleFunction
+    name: sls-${self:provider.stage}-${self:custom.lambdaName}
+    environment:
+      VERSION: 1.0.0
+    events:
+      - http:
+          path: diagnostics/heartbeat
+          method: any
+          cors: ${self:custom.cors}
+          integration: lambda-proxy
+          private: true
+      - http: # This creates an API Gateway HTTP endpoint which can be used to trigger this function.  Learn more in "events/apigateway"
+          path: users/create # Path for this endpoint
+          method: get # HTTP method for this endpoint
+          cors: true # Turn on CORS for this endpoint, but don't forget to return the right header in your response
+          private: true # Requires clients to add API keys values in the `x-api-key` header of their request
+          authorizer: # An AWS API Gateway custom authorizer function
+            name: authorizerFunc # The name of the authorizer function (must be in this service)
+            arn: xxx:xxx:Lambda-Name # Can be used instead of name to reference a function outside of service
+            resultTtlInSeconds: 0
+            identitySource: method.request.header.Authorization
+            identityValidationExpression: someRegex
+            type: token # token or request. Determines input to the authorizer function, called with the auth token or the entire request event. Defaults to token
+
+custom:
+  lambdaName: sampleFunction
+  cors:
+    origin: '*'
+    headers: 
+      - Content-Type
+      - X-Amz-Date
+      - Authorization
+      - X-Api-Key
+      - X-Amz-Security-Token
+      - X-Amz-User-Agent
+    allowCredentials: false
+
+package:
+  individually: true
+  exclude:
+    - node_modules/**
